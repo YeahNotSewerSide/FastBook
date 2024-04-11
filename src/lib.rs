@@ -156,9 +156,13 @@ impl<T: Ord + Eq + Copy> OrderBookRead<T> {
 impl<T: Eq + Ord> Drop for OrderBookWrite<T> {
     fn drop(&mut self) {
         self.allocated.swap(false, Ordering::Acquire);
+        let guard_bids = unsafe { &*self.lock_bids }.write();
+        let guard_asks = unsafe { &*self.lock_asks }.write();
         let _ = Box::leak(unsafe { Box::from_raw(self.bids) });
         let _ = Box::leak(unsafe { Box::from_raw(self.asks) });
         let _ = Box::leak(unsafe { Box::from_raw(self.lock_bids) });
         let _ = Box::leak(unsafe { Box::from_raw(self.lock_asks) });
+        drop(guard_bids);
+        drop(guard_asks);
     }
 }
