@@ -1,6 +1,6 @@
 use parking_lot::RwLock;
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{fence, AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -59,8 +59,9 @@ impl<T: Ord + Eq + Copy> OrderBookWrite<T> {
         for bid in bids {
             if bid.1 == 0.0 {
                 let guard = unsafe { &mut *self.lock_bids }.write();
-
+                fence(Ordering::Acquire);
                 inner_bids.remove(&bid.0);
+                fence(Ordering::Release);
 
                 drop(guard);
             } else {
@@ -71,8 +72,10 @@ impl<T: Ord + Eq + Copy> OrderBookWrite<T> {
                     }
                     None => {
                         let guard = unsafe { &mut *self.lock_bids }.write();
+                        fence(Ordering::Acquire);
 
                         inner_bids.insert(bid.0, AtomicU64::new(bid.1.to_bits()));
+                        fence(Ordering::Release);
 
                         drop(guard);
                     }
@@ -86,8 +89,10 @@ impl<T: Ord + Eq + Copy> OrderBookWrite<T> {
         for ask in asks {
             if ask.1 == 0.0 {
                 let guard = unsafe { &mut *self.lock_asks }.write();
+                fence(Ordering::Acquire);
 
                 inner_asks.remove(&ask.0);
+                fence(Ordering::Release);
 
                 drop(guard);
             } else {
@@ -98,8 +103,10 @@ impl<T: Ord + Eq + Copy> OrderBookWrite<T> {
                     }
                     None => {
                         let guard = unsafe { &mut *self.lock_asks }.write();
+                        fence(Ordering::Acquire);
 
                         inner_asks.insert(ask.0, AtomicU64::new(ask.1.to_bits()));
+                        fence(Ordering::Release);
 
                         drop(guard);
                     }
@@ -116,6 +123,7 @@ impl<T: Ord + Eq + Copy> OrderBookRead<T> {
         }
         let guard = unsafe { &*self.lock_bids }.read();
 
+        fence(Ordering::Acquire);
         // we do not change the underlying entry
         let bids = unsafe { &mut *self.bids };
         let entry = match bids.last_entry() {
@@ -126,6 +134,7 @@ impl<T: Ord + Eq + Copy> OrderBookRead<T> {
         let key = *entry.key();
         let value = f64::from_bits(entry.get().load(Ordering::Relaxed));
 
+        fence(Ordering::Release);
         drop(guard);
 
         Ok(Some((key, value)))
@@ -137,6 +146,7 @@ impl<T: Ord + Eq + Copy> OrderBookRead<T> {
         }
         let guard = unsafe { &*self.lock_asks }.read();
 
+        fence(Ordering::Acquire);
         // we do not change the underlying entry
         let asks = unsafe { &mut *self.asks };
         let entry = match asks.last_entry() {
@@ -147,6 +157,7 @@ impl<T: Ord + Eq + Copy> OrderBookRead<T> {
         let key = *entry.key();
         let value = f64::from_bits(entry.get().load(Ordering::Relaxed));
 
+        fence(Ordering::Release);
         drop(guard);
 
         Ok(Some((key, value)))
@@ -158,10 +169,12 @@ impl<T: Eq + Ord> Drop for OrderBookWrite<T> {
         self.allocated.swap(false, Ordering::Acquire);
         let guard_bids = unsafe { &*self.lock_bids }.write();
         let guard_asks = unsafe { &*self.lock_asks }.write();
+        fence(Ordering::Acquire);
         let _ = Box::leak(unsafe { Box::from_raw(self.bids) });
         let _ = Box::leak(unsafe { Box::from_raw(self.asks) });
         let _ = Box::leak(unsafe { Box::from_raw(self.lock_bids) });
         let _ = Box::leak(unsafe { Box::from_raw(self.lock_asks) });
+        fence(Ordering::Release);
         drop(guard_bids);
         drop(guard_asks);
     }
