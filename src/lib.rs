@@ -149,7 +149,7 @@ impl<T: Ord + Eq + Copy> OrderBookRead<T> {
         fence(Ordering::Acquire);
         // we do not change the underlying entry
         let asks = unsafe { &mut *self.asks };
-        let entry = match asks.last_entry() {
+        let entry = match asks.first_entry() {
             Some(e) => e,
             None => return Ok(None),
         };
